@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Cube3D, { type MoveAnim } from "@/components/Cube3D";
+import { diagnose } from "@/lib/diagnose";
 import {
   COLORS,
   FACES,
@@ -48,8 +49,24 @@ export default function CubeSolver() {
   // Each puzzle keeps its own cube, so switching back and forth doesn't lose your work.
   const [cubes, setCubes] = useState<Record<Size, string>>({ 2: SOLVED2, 3: SOLVED });
   const facelets = cubes[size];
-  const setFacelets = (update: string | ((f: string) => string)) =>
+  const [history, setHistory] = useState<Record<Size, string>[]>([]); // for Undo
+  const [attempted, setAttempted] = useState(false); // user pressed Solve on a cube that isn't valid
+  const [activeFix, setActiveFix] = useState<number | null>(null);
+  const setFacelets = (update: string | ((f: string) => string)) => {
+    setHistory((h) => [...h.slice(-199), cubes]);
+    setAttempted(false);
+    setActiveFix(null);
     setCubes((c) => ({ ...c, [size]: typeof update === "function" ? update(c[size]) : update }));
+  };
+  const undo = () => {
+    const prev = history[history.length - 1];
+    if (!prev) return;
+    setHistory((h) => h.slice(0, -1));
+    setCubes(prev);
+    setAttempted(false);
+    setActiveFix(null);
+    setError(null);
+  };
 
   const three = size === 3;
   const perFace = size * size;
@@ -112,9 +129,17 @@ export default function CubeSolver() {
   }, [playing, step, solution]);
 
   const counts = colorCounts(facelets);
+  const complete = FACES.every((f) => counts[f] === perColor);
+  const diag = useMemo(() => (inSolution ? null : diagnose(facelets, size)), [facelets, size, inSolution]);
+  // Explain problems as soon as every sticker is painted, or when Solve was pressed.
+  const showDiag = !inSolution && diag !== null && (complete || attempted);
+  const problemStickers = new Set(showDiag && diag ? diag.stickers : []);
+  const fixStickers = new Set(
+    showDiag && diag && activeFix !== null ? (diag.fixes[activeFix]?.stickers ?? []) : [],
+  );
 
   const paintSticker = (index: number) => {
-    if (inSolution) return;
+    if (inSolution || facelets[index] === paint) return;
     setError(null);
     setFacelets((f) => f.slice(0, index) + paint + f.slice(index + 1));
   };
@@ -176,6 +201,10 @@ export default function CubeSolver() {
   };
 
   const solve = () => {
+    if (diag) {
+      setAttempted(true); // the panel below explains what is wrong
+      return;
+    }
     const problem = three ? validateColored(facelets) : validateColored2(facelets);
     const canonical = three ? toCanonical(facelets) : toCanonical2(facelets);
     if (problem || !canonical) {
@@ -223,6 +252,7 @@ export default function CubeSolver() {
           {FACES.map((f) => {
             const active = paint === f;
             const bad = counts[f] > perColor;
+            const full = counts[f] === perColor;
             return (
               <button
                 key={f}
@@ -239,8 +269,17 @@ export default function CubeSolver() {
                   style={{ background: COLORS[f].hex }}
                 />
                 <span>{COLORS[f].name}</span>
-                <span className={bad ? "font-semibold text-red-600" : "text-zinc-500"}>
+                <span
+                  className={
+                    bad
+                      ? "font-semibold text-red-600"
+                      : full
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-zinc-500"
+                  }
+                >
                   {counts[f]}/{perColor}
+                  {full ? " ✓" : ""}
                 </span>
               </button>
             );
@@ -287,8 +326,14 @@ export default function CubeSolver() {
                   onClick={() => paintSticker(index)}
                   disabled={inSolution}
                   aria-label={`${FACE_NAMES[face]} face, sticker ${n + 1}: ${COLORS[letter].name}`}
-                  className={`flex items-center justify-center rounded-[3px] text-xs font-bold text-black/50 ${
+                  className={`relative flex items-center justify-center rounded-[3px] text-xs font-bold text-black/50 ${
                     inSolution ? "cursor-default" : "cursor-pointer hover:brightness-90"
+                  } ${
+                    fixStickers.has(index)
+                      ? "z-10 animate-pulse ring-4 ring-blue-500"
+                      : problemStickers.has(index)
+                        ? "z-10 ring-2 ring-red-600"
+                        : ""
                   }`}
                   style={{
                     width: "var(--s)",
@@ -331,6 +376,13 @@ export default function CubeSolver() {
               >
                 Reset
               </button>
+              <button
+                onClick={undo}
+                disabled={history.length === 0}
+                className="rounded-lg border border-zinc-300 px-4 py-2 transition hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              >
+                ↶ Undo
+              </button>
             </div>
 
             <form
@@ -363,7 +415,71 @@ export default function CubeSolver() {
             Up on top; Left, Front, Right, Back across the middle; Down below. The solution moves are given
             from that same viewpoint.
           </p>
+          <details className="mx-auto max-w-md text-xs text-zinc-600 dark:text-zinc-400">
+            <summary className="cursor-pointer text-center">How to copy your real cube correctly</summary>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              <li>Hold the cube with one face on top (Up) and another toward you (Front), and keep that grip all the way through.</li>
+              <li>Front, Right, Back, Left: turn the whole cube around its vertical axis so Up stays on top, and copy each face as you see it.</li>
+              <li>Up: look straight down at it, with the Front side nearest to you.</li>
+              <li>Down: turn the cube so the bottom faces you, with the old Front side at the top of the face.</li>
+              <li>A wrongly copied Down or Back face is the most common cause of &ldquo;impossible cube&rdquo; errors.</li>
+            </ul>
+          </details>
         </>
+      )}
+
+      {!inSolution && complete && !diag && (
+        <p className="text-center text-sm font-medium text-emerald-700 dark:text-emerald-400">
+          ✓ This cube looks valid — press Solve.
+        </p>
+      )}
+
+      {showDiag && diag && (
+        <section
+          aria-live="polite"
+          className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
+        >
+          <p className="font-medium">{diag.message}</p>
+          {diag.stickers.length > 0 && (
+            <p className="mt-1 text-xs opacity-80">The stickers in question have a red outline on the net.</p>
+          )}
+          {diag.fixes.length > 0 && (
+            <>
+              <p className="mt-2 text-xs opacity-80">{diag.fixHint}</p>
+              <ul className="mt-2 flex flex-col gap-1.5">
+                {diag.fixes.map((fix, i) => (
+                  <li
+                    key={i}
+                    onMouseEnter={() => setActiveFix(i)}
+                    onMouseLeave={() => setActiveFix(null)}
+                    className={`flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 ${
+                      activeFix === i
+                        ? "border-blue-500 bg-white dark:bg-zinc-900"
+                        : "border-amber-200 dark:border-amber-900"
+                    }`}
+                  >
+                    <button onClick={() => setActiveFix(i)} onFocus={() => setActiveFix(i)} className="text-left">
+                      <span className="font-medium">{fix.title}</span>
+                      <span className="block text-xs opacity-80">
+                        {fix.changes.map((c) => `${FACE_NAMES[c.face]}: ${c.from} → ${c.to}`).join(" · ")}
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => setFacelets(fix.result)}
+                      className="rounded-md bg-zinc-900 px-3 py-1 text-xs font-medium text-white dark:bg-white dark:text-zinc-900"
+                    >
+                      Apply
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs opacity-80">
+                If your real cube really looks the way you painted it, it was probably taken apart and rebuilt
+                wrongly. It can&apos;t be solved by turning faces until that piece is fixed by hand.
+              </p>
+            </>
+          )}
+        </section>
       )}
 
       {error && (

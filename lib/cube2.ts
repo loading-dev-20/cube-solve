@@ -32,7 +32,7 @@ const to3 = (i: number) => {
   return face * 9 + Math.floor(k / 2) * 6 + (k % 2) * 2;
 };
 
-const CORNER_SLOTS = CORNER_FACELETS.map((slot) => slot.map(to2));
+export const CORNER_SLOTS = CORNER_FACELETS.map((slot) => slot.map(to2));
 
 /** Embed 24 face-letter stickers in a 3x3 string whose edges and centres are solved. */
 export function expand(canonical: string): string {

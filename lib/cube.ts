@@ -38,7 +38,7 @@ export const CORNER_FACELETS = [
   [at("D", 7), at("B", 9), at("L", 7)],
   [at("D", 9), at("R", 9), at("B", 7)],
 ];
-const EDGE_FACELETS = [
+export const EDGE_FACELETS = [
   [at("U", 6), at("R", 2)],
   [at("U", 8), at("F", 2)],
   [at("U", 4), at("L", 2)],
@@ -55,7 +55,7 @@ const EDGE_FACELETS = [
 export const CORNER_COLORS = [
   "URF", "UFL", "ULB", "UBR", "DFR", "DLF", "DBL", "DRB",
 ];
-const EDGE_COLORS = [
+export const EDGE_COLORS = [
   "UR", "UF", "UL", "UB", "DR", "DF", "DL", "DB", "FR", "FL", "BL", "BR",
 ];
 
