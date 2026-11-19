@@ -14,7 +14,7 @@ import {
   validateColored,
   type Face,
 } from "./cube";
-import { CORNER_SLOTS, toCanonical2, validateColored2 } from "./cube2";
+import { CORNER_SLOTS, oddPairs, toCanonical2, validateColored2 } from "./cube2";
 
 export type Change = { index: number; face: Face; from: string; to: string };
 export type Fix = {
@@ -71,13 +71,45 @@ export function diagnose(colored: string, size: 2 | 3): Diagnosis | null {
 
   const cornerSlots = three ? CORNER_FACELETS : CORNER_SLOTS;
   const edgeSlots = three ? EDGE_FACELETS : [];
-  const canonical = three ? toCanonical(colored) : toCanonical2(colored);
+  let canonical: string | null = null;
+  if (three) {
+    canonical = toCanonical(colored);
+  } else {
+    // A 2x2 has no centres, so first make sure the colours can belong to one cube at all.
+    const repeats = cornerSlots.filter((s) => new Set(s.map((i) => colored[i])).size !== 3);
+    if (repeats.length) return { ...base, stickers: repeats.flat() };
 
-  if (!canonical) {
-    // 2x2 only: colours that cannot belong to one cube. Point at corners repeating a colour.
-    const bad = cornerSlots.filter((s) => new Set(s.map((i) => colored[i])).size !== 3).flat();
-    return { ...base, stickers: bad };
+    const odd = oddPairs(colored);
+    // Read the colour scheme off each corner in turn and keep the reading that finds the fewest
+    // impossible corners: that is the one where the mis-painted corner stands out.
+    const unreadable = (c: string) =>
+      cornerSlots.filter((slot) => {
+        const l = slot.map((i) => c[i]);
+        const ori = l.findIndex((x) => x === "U" || x === "D");
+        return ori < 0 || !CORNER_COLORS.includes(`${l[ori]}${l[(ori + 1) % 3]}${l[(ori + 2) % 3]}`);
+      }).length;
+    const order = [6, 0, 1, 2, 3, 4, 5, 7].sort(
+      (x, y) => Number(odd.corners.includes(x)) - Number(odd.corners.includes(y)),
+    );
+    let best = Infinity;
+    for (const ref of order) {
+      const c = toCanonical2(colored, ref);
+      if (c && unreadable(c) < best) {
+        best = unreadable(c);
+        canonical = c;
+      }
+    }
+    if (!canonical) {
+      const [x, y] = odd.pairs[0] ?? [];
+      const example = x && y ? ` For example, ${colourName(x)} and ${colourName(y)} meet at the wrong number of corners.` : "";
+      return {
+        ...base,
+        message: `These colours don't fit a real 2×2.${example} One of the highlighted corners was probably painted with a wrong colour.`,
+        stickers: odd.corners.flatMap((s) => cornerSlots[s]),
+      };
+    }
   }
+  if (!canonical) return base;
 
   // canonical face letter -> the colour painted for that face
   const faceColour = new Map<string, string>();

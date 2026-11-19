@@ -561,6 +561,12 @@ export default function CubeSolver() {
                 U/D/L/R/F/B = Up, Down, Left, Right, Front, Back face. Plain = 90° clockwise looking at
                 that face, &apos; = counter-clockwise, 2 = half turn.
               </p>
+              {!three && (
+                <p className="text-center text-xs text-zinc-500">
+                  On a 2×2 you only ever turn the Up, Right and Front faces: hold the Down–Back–Left corner
+                  still and turn just those three.
+                </p>
+              )}
             </>
           )}
 

@@ -57,7 +57,9 @@ const BAD_COLOURS =
  * its three colours become D, B and L, and each one's opposite is the colour it never shares a
  * corner with (U, F and R).
  */
-function analyse(colored: string): Analysis {
+const OPPOSITE: Record<Face, Face> = { U: "D", D: "U", R: "L", L: "R", F: "B", B: "F" };
+
+function analyse(colored: string, ref = 6): Analysis {
   const corners = CORNER_SLOTS.map((slot) => slot.map((i) => colored[i]));
   if (corners.some((c) => new Set(c).size !== 3))
     return { error: "A corner has two stickers of the same colour — that piece doesn't exist." };
@@ -75,11 +77,16 @@ function analyse(colored: string): Analysis {
     return rest.length === 1 ? rest[0] : null;
   };
 
-  const [a, b, c] = corners[6]; // stickers on the D, B and L faces of the reference corner
-  const [ua, ub, uc] = [opposite(a), opposite(b), opposite(c)];
-  if (!ua || !ub || !uc) return { error: BAD_COLOURS };
+  // The reference corner's own stickers name three faces; the opposite colours name the other three.
+  const faces = [...CORNER_COLORS[ref]] as Face[];
+  const opp = corners[ref].map(opposite);
+  if (opp.some((o) => !o)) return { error: BAD_COLOURS };
 
-  const faceColor = { D: a, B: b, L: c, U: ua, F: ub, R: uc } as Record<Face, string>;
+  const faceColor = {} as Record<Face, string>;
+  faces.forEach((f, k) => {
+    faceColor[f] = corners[ref][k];
+    faceColor[OPPOSITE[f]] = opp[k]!;
+  });
   const colorToFace = new Map<string, Face>();
   (Object.keys(faceColor) as Face[]).forEach((f) => colorToFace.set(faceColor[f], f));
   if (colorToFace.size !== 6) return { error: BAD_COLOURS };
@@ -94,8 +101,8 @@ function analyse(colored: string): Analysis {
 }
 
 /** The cube as face letters (what the solver reads), or null if the colours make no sense. */
-export function toCanonical2(colored: string): string | null {
-  const a = analyse(colored);
+export function toCanonical2(colored: string, ref = 6): string | null {
+  const a = analyse(colored, ref);
   return "error" in a ? null : a.canonical;
 }
 
@@ -143,4 +150,24 @@ export function applyMoves2(colored: string, moves: string[]): string {
 
 export function randomCube2(): string {
   return extract(randomCube());
+}
+
+/**
+ * On a real 2x2 every two colours either never share a corner (opposites) or share exactly two.
+ * Pairs that meet at any other number of corners point at a mis-painted corner.
+ */
+export function oddPairs(colored: string): { pairs: [string, string][]; corners: number[] } {
+  const count = new Map<string, number>();
+  const sets = CORNER_SLOTS.map((slot) => [...new Set(slot.map((i) => colored[i]))].sort());
+  for (const cs of sets)
+    for (let i = 0; i < cs.length; i++)
+      for (let j = i + 1; j < cs.length; j++) {
+        const k = cs[i] + cs[j];
+        count.set(k, (count.get(k) ?? 0) + 1);
+      }
+  const odd = new Set([...count].filter(([, n]) => n !== 2).map(([k]) => k));
+  const corners = sets.flatMap((cs, slot) =>
+    cs.some((x, i) => cs.slice(i + 1).some((y) => odd.has(x + y))) ? [slot] : [],
+  );
+  return { pairs: [...odd].map((k) => [k[0], k[1]] as [string, string]), corners };
 }
