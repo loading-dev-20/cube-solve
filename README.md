@@ -26,5 +26,5 @@ Or with the CLI: `npx vercel` (then `npx vercel --prod`).
 - `lib/cube2.ts` / `lib/solver2.ts` – 2×2 model (colour scheme inferred from the pieces, no centres needed) and optimal solver (breadth-first distance table, built in well under a second).
 - `lib/diagnose.ts` – explains why a painted cube is impossible (bad/duplicate piece, twisted corner, flipped edge) and offers one-click repairs.
 - `lib/cube3d.ts` – pure geometry for the 3D cube (sticker positions, layer turns).
-- `components/Cube3D.tsx` – Three.js cube with drag-to-rotate and animated layer turns.
-- `components/CubeSolver.tsx` – paintable cube net, random scramble, "type moves" input, and the step-through player (3D or flat view).
+- `components/Cube3D.tsx` – Three.js cube with drag-to-rotate, click-to-paint, and animated layer turns.
+- `components/CubeSolver.tsx` – 3D or flat painting, a per-side "copied" checklist, random scramble, "type moves" input, and the step-through player.

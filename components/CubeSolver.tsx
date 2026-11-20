@@ -44,6 +44,15 @@ type WorkerMsg =
 
 type Size = 2 | 3;
 
+const NO_MARKS: Record<Face, boolean> = {
+  U: false,
+  R: false,
+  F: false,
+  D: false,
+  L: false,
+  B: false,
+};
+
 export default function CubeSolver() {
   const [size, setSize] = useState<Size>(3);
   // Each puzzle keeps its own cube, so switching back and forth doesn't lose your work.
@@ -52,6 +61,15 @@ export default function CubeSolver() {
   const [history, setHistory] = useState<Record<Size, string>[]>([]); // for Undo
   const [attempted, setAttempted] = useState(false); // user pressed Solve on a cube that isn't valid
   const [activeFix, setActiveFix] = useState<number | null>(null);
+  // Which sides the user has copied from their real cube. Only a progress reminder.
+  const [marked, setMarked] = useState<Record<Size, Record<Face, boolean>>>({
+    2: { ...NO_MARKS },
+    3: { ...NO_MARKS },
+  });
+  const toggleMark = (face: Face) =>
+    setMarked((m) => ({ ...m, [size]: { ...m[size], [face]: !m[size][face] } }));
+  const clearMarks = () => setMarked((m) => ({ ...m, [size]: { ...NO_MARKS } }));
+  const markedCount = FACES.filter((f) => marked[size][f]).length;
   const setFacelets = (update: string | ((f: string) => string)) => {
     setHistory((h) => [...h.slice(-199), cubes]);
     setAttempted(false);
@@ -166,11 +184,13 @@ export default function CubeSolver() {
 
   const reset = () => {
     edit();
+    clearMarks();
     setFacelets(three ? SOLVED : SOLVED2);
   };
 
   const scramble = () => {
     edit();
+    clearMarks();
     setFacelets(three ? randomCube() : randomCube2());
   };
 
@@ -196,6 +216,7 @@ export default function CubeSolver() {
       return;
     }
     edit();
+    clearMarks();
     setFacelets((f) => applyBySize(f, moves));
     setScrambleText("");
   };
@@ -287,8 +308,61 @@ export default function CubeSolver() {
         </section>
       )}
 
-      {/* Cube net (editing, or the flat view of a solution) */}
-      {(!inSolution || view === "flat") && (
+      {/* Which sides you have painted — a progress reminder, nothing is locked. */}
+      {!inSolution && (
+        <section aria-label="Sides painted" className="flex flex-col items-center gap-2">
+          <div className="flex flex-wrap justify-center gap-1.5">
+            {FACES.map((f) => {
+              const done = marked[size][f];
+              return (
+                <button
+                  key={f}
+                  onClick={() => toggleMark(f)}
+                  aria-pressed={done}
+                  aria-label={`${FACE_NAMES[f]} side ${done ? "marked as painted" : "not marked as painted"}`}
+                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition ${
+                    done
+                      ? "border-emerald-600 bg-emerald-600 text-white"
+                      : "border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  <span
+                    className="inline-block h-2.5 w-2.5 rounded-full border border-black/30"
+                    style={{ background: COLORS[f].hex }}
+                  />
+                  {f}
+                  <span aria-hidden={!done}>{done ? "✓" : ""}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-center text-xs text-zinc-500">
+            {markedCount}/6 sides marked as painted. Mark each side as you paint it — solving still
+            works any time.
+          </p>
+        </section>
+      )}
+
+      {/* 3D or flat view, while painting and while stepping through a solution. */}
+      <div className="flex justify-center gap-1 text-sm" role="group" aria-label="View">
+        {(["3d", "flat"] as const).map((v) => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            aria-pressed={view === v}
+            className={`rounded-full border px-4 py-1 ${
+              view === v
+                ? "border-zinc-900 bg-zinc-900 text-white dark:border-white dark:bg-white dark:text-zinc-900"
+                : "border-zinc-300 dark:border-zinc-700"
+            }`}
+          >
+            {v === "3d" ? "3D cube" : "Flat net"}
+          </button>
+        ))}
+      </div>
+
+      {/* Cube net (flat painting, or the flat view of a solution) */}
+      {view === "flat" && (
       <section
         aria-label="Cube net"
         className="mx-auto grid gap-1.5"
@@ -303,13 +377,20 @@ export default function CubeSolver() {
         {FACES.map((face, fi) => (
           <div
             key={face}
-            className="relative grid gap-0.5 rounded-md bg-zinc-900 p-0.5"
+            className={`relative grid gap-0.5 rounded-md bg-zinc-900 p-0.5 ${
+              !inSolution && marked[size][face] ? "ring-2 ring-emerald-500" : ""
+            }`}
             style={{
               gridColumn: NET[face][0],
               gridRow: NET[face][1],
               gridTemplateColumns: `repeat(${size}, auto)`,
             }}
           >
+            {!inSolution && marked[size][face] && (
+              <span className="pointer-events-none absolute -right-1.5 -top-1.5 z-20 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white">
+                ✓
+              </span>
+            )}
             {!three && (
               // A 2x2 has no centre sticker to label the face, so mark it in the middle.
               <span className="pointer-events-none absolute left-1/2 top-1/2 z-10 flex h-4 w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-zinc-900 text-[9px] font-bold text-white">
@@ -350,7 +431,23 @@ export default function CubeSolver() {
       </section>
       )}
 
-      {inSolution && view === "3d" && <Cube3D key={size} size={size} facelets={shown} anim={anim} />}
+      {view === "3d" && (
+        <Cube3D
+          key={size}
+          size={size}
+          facelets={shown}
+          anim={anim}
+          onPaint={inSolution ? undefined : paintSticker}
+        />
+      )}
+
+      {view === "3d" && (
+        <p className="text-center text-xs text-zinc-500">
+          {inSolution
+            ? "Drag to rotate the cube · scroll or pinch to zoom"
+            : "Click or tap a sticker to paint it · drag to rotate · scroll or pinch to zoom"}
+        </p>
+      )}
 
       {/* Edit controls */}
       {!inSolution && (
@@ -411,9 +508,11 @@ export default function CubeSolver() {
             {three
               ? "Paint all 54 stickers, centres included. "
               : "Paint all 24 stickers — a 2×2 has no centres, and any colour scheme works. "}
-            Hold the cube with one face on top (U) and another facing you (F), then copy it as laid out here:
-            Up on top; Left, Front, Right, Back across the middle; Down below. The solution moves are given
-            from that same viewpoint.
+            {view === "3d"
+              ? "Drag to turn the cube, then click or tap a sticker to paint it. "
+              : "Copy the net as laid out: Up on top; Left, Front, Right, Back across the middle; Down below. "}
+            Hold the real cube with one face on top (U) and another facing you (F), and keep that grip —
+            the solution moves use that same viewpoint.
           </p>
           <details className="mx-auto max-w-md text-xs text-zinc-600 dark:text-zinc-400">
             <summary className="cursor-pointer text-center">How to copy your real cube correctly</summary>
@@ -441,7 +540,15 @@ export default function CubeSolver() {
         >
           <p className="font-medium">{diag.message}</p>
           {diag.stickers.length > 0 && (
-            <p className="mt-1 text-xs opacity-80">The stickers in question have a red outline on the net.</p>
+            <p className="mt-1 text-xs opacity-80">The stickers in question have a red outline on the flat net.</p>
+          )}
+          {view === "3d" && (diag.stickers.length > 0 || diag.fixes.length > 0) && (
+            <button
+              onClick={() => setView("flat")}
+              className="mt-2 rounded-md border border-amber-400 px-2.5 py-1 text-xs font-medium transition hover:bg-amber-100 dark:border-amber-700 dark:hover:bg-amber-900"
+            >
+              Show the highlights on the flat net
+            </button>
           )}
           {diag.fixes.length > 0 && (
             <>
@@ -570,25 +677,6 @@ export default function CubeSolver() {
             </>
           )}
 
-          <div className="flex justify-center gap-1 text-sm" role="group" aria-label="View">
-            {(["3d", "flat"] as const).map((v) => (
-              <button
-                key={v}
-                onClick={() => setView(v)}
-                aria-pressed={view === v}
-                className={`rounded-full border px-4 py-1 ${
-                  view === v
-                    ? "border-zinc-900 bg-zinc-900 text-white dark:border-white dark:bg-white dark:text-zinc-900"
-                    : "border-zinc-300 dark:border-zinc-700"
-                }`}
-              >
-                {v === "3d" ? "3D cube" : "Flat net"}
-              </button>
-            ))}
-          </div>
-          {view === "3d" && (
-            <p className="text-center text-xs text-zinc-500">Drag to rotate the cube · scroll or pinch to zoom</p>
-          )}
           <div className="flex justify-center">
             <button
               onClick={edit}

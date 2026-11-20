@@ -16,6 +16,8 @@ type Props = {
   durationMs?: number;
   /** 2 for a pocket cube, 3 for a standard cube. */
   size?: 2 | 3;
+  /** When set, clicking a sticker reports its facelet index (painting mode). */
+  onPaint?: (index: number) => void;
 };
 
 type Api = {
@@ -42,9 +44,14 @@ function labelTexture(letter: string) {
 
 const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
-export default function Cube3D({ facelets, anim, durationMs = 450, size = 3 }: Props) {
+export default function Cube3D({ facelets, anim, durationMs = 450, size = 3, onPaint }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<Api | null>(null);
+  const paintRef = useRef(onPaint);
+
+  useEffect(() => {
+    paintRef.current = onPaint;
+  }, [onPaint]);
 
   // Build the scene once.
   useEffect(() => {
@@ -99,12 +106,15 @@ export default function Cube3D({ facelets, anim, durationMs = 450, size = 3 }: P
     };
 
     const count = 6 * size * size;
+    const stickerMeshes: THREE.Mesh[] = [];
     for (let i = 0; i < count; i++) {
       const { pos, normal } = stickerSlot(i, size);
       const mat = new THREE.MeshBasicMaterial({ color: 0xffffff });
       stickerMats[i] = mat;
       disposables.push(mat);
       const mesh = new THREE.Mesh(stickerGeo, mat);
+      mesh.userData.stickerIndex = i;
+      stickerMeshes.push(mesh);
       mesh.position.set(normal[0], normal[1], normal[2]).multiplyScalar(BODY / 2 + 0.002);
       orient(mesh, normal);
       cubieAt.get(pos.join(","))!.add(mesh);
@@ -163,6 +173,66 @@ export default function Cube3D({ facelets, anim, durationMs = 450, size = 3 }: P
     };
     apiRef.current = api;
 
+    // --- painting: click/tap a sticker without dragging the cube ---
+    const dom = renderer.domElement;
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    let hovered: THREE.Mesh | null = null;
+    let downAt: { x: number; y: number; id: number } | null = null;
+    dom.style.cursor = "grab";
+
+    const stickerAt = (e: PointerEvent) => {
+      const rect = dom.getBoundingClientRect();
+      pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hit = raycaster.intersectObjects(stickerMeshes, false)[0];
+      return hit ? (hit.object.userData.stickerIndex as number) : null;
+    };
+
+    const setHovered = (mesh: THREE.Mesh | null) => {
+      if (mesh === hovered) return;
+      hovered?.scale.setScalar(1);
+      hovered = mesh;
+      hovered?.scale.setScalar(1.06);
+      dom.style.cursor = hovered && paintRef.current ? "pointer" : "grab";
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      downAt = { x: e.clientX, y: e.clientY, id: e.pointerId };
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (!paintRef.current) return setHovered(null);
+      const index = stickerAt(e);
+      setHovered(index === null ? null : stickerMeshes[index]);
+    };
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (!downAt || e.pointerId !== downAt.id || e.button !== 0) return;
+      const moved = Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y);
+      downAt = null;
+      // A real click, not the end of a drag that rotated the cube.
+      if (moved > 8 || !paintRef.current) return;
+      const index = stickerAt(e);
+      if (index !== null) paintRef.current(index);
+    };
+
+    const onPointerCancel = () => {
+      downAt = null;
+    };
+
+    const onPointerLeave = () => {
+      if (!downAt) setHovered(null);
+    };
+
+    dom.addEventListener("pointerdown", onPointerDown);
+    dom.addEventListener("pointermove", onPointerMove);
+    dom.addEventListener("pointerup", onPointerUp);
+    dom.addEventListener("pointercancel", onPointerCancel);
+    dom.addEventListener("pointerleave", onPointerLeave);
+
     // --- sizing + render loop ---
     const resize = () => {
       const w = mount.clientWidth;
@@ -195,6 +265,11 @@ export default function Cube3D({ facelets, anim, durationMs = 450, size = 3 }: P
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      dom.removeEventListener("pointerdown", onPointerDown);
+      dom.removeEventListener("pointermove", onPointerMove);
+      dom.removeEventListener("pointerup", onPointerUp);
+      dom.removeEventListener("pointercancel", onPointerCancel);
+      dom.removeEventListener("pointerleave", onPointerLeave);
       controls.dispose();
       disposables.forEach((d) => d.dispose());
       renderer.dispose();
@@ -221,7 +296,11 @@ export default function Cube3D({ facelets, anim, durationMs = 450, size = 3 }: P
     <div
       ref={mountRef}
       className="mx-auto aspect-square w-full max-w-md touch-none rounded-xl bg-gradient-to-b from-zinc-200 to-zinc-100 dark:from-zinc-800 dark:to-zinc-900"
-      aria-label="3D cube — drag to rotate"
+      aria-label={
+        onPaint
+          ? "3D cube — drag to rotate, click or tap a sticker to paint it"
+          : "3D cube — drag to rotate"
+      }
     />
   );
 }
